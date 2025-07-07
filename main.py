@@ -1,4 +1,4 @@
-# main.py - Complete Streamlit Application
+# main.py - Fixed Streamlit Application
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Dict, Any, List
 import sys
 import os
+import traceback
 
 # Add project root to Python path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -18,7 +19,6 @@ from core.analyzer import YouTubeAnalyzer
 from core.exceptions import AnalysisError, DataCollectionError, APIError
 from visualization.charts import ChartGenerator
 from visualization.export import DataExporter
-from ml.prediction import PredictionEngine
 
 # Page configuration
 st.set_page_config(
@@ -100,11 +100,6 @@ st.markdown("""
         border-radius: 10px;
         margin: 8px 0;
         box-shadow: 0 3px 12px rgba(0,0,0,0.15);
-    }.tab-content {
-        padding: 20px;
-        background: white;
-        border-radius: 10px;
-        margin-top: 10px;
     }
     .metric-card {
         background: white;
@@ -126,7 +121,6 @@ class YouTubeAnalyticsApp:
         self.analyzer = None
         self.chart_generator = ChartGenerator()
         self.data_exporter = DataExporter()
-        self.prediction_engine = PredictionEngine()
 
         # Initialize session state
         self._initialize_session_state()
@@ -156,18 +150,26 @@ class YouTubeAnalyticsApp:
 
     def run(self):
         """Main application entry point"""
-        # Header
-        st.markdown('<h1 class="main-header">🎯 YouTube Analytics Pro</h1>', unsafe_allow_html=True)
-        st.markdown("### 🧠 Advanced AI-Powered YouTube Analytics • 📊 150+ Feature Analysis • 🚀 Predictive ML Models")
+        try:
+            # Header
+            st.markdown('<h1 class="main-header">🎯 YouTube Analytics Pro</h1>', unsafe_allow_html=True)
+            st.markdown(
+                "### 🧠 Advanced AI-Powered YouTube Analytics • 📊 150+ Feature Analysis • 🚀 Predictive ML Models")
 
-        # Sidebar configuration
-        self._render_sidebar()
+            # Sidebar configuration
+            self._render_sidebar()
 
-        # Main content
-        if st.session_state.analysis_complete and st.session_state.analysis_results:
-            self._render_results()
-        else:
-            self._render_analysis_setup()
+            # Main content
+            if st.session_state.analysis_complete and st.session_state.analysis_results:
+                self._render_results()
+            else:
+                self._render_analysis_setup()
+
+        except Exception as e:
+            st.error(f"Application Error: {str(e)}")
+            st.error("Please refresh the page and try again.")
+            if st.checkbox("Show Error Details"):
+                st.code(traceback.format_exc())
 
     def _render_sidebar(self):
         """Render sidebar configuration"""
@@ -507,11 +509,8 @@ class YouTubeAnalyticsApp:
                 status_text.text(f"🔍 Analyzing {channels[0]}...")
                 progress_bar.progress(0.1)
 
-                result = asyncio.run(self.analyzer.analyze_channel(
-                    channels[0],
-                    max_videos=self.settings.youtube.max_videos_per_channel,
-                    include_predictions=True
-                ))
+                # Run analysis synchronously to avoid asyncio issues
+                result = self._run_single_analysis(channels[0])
 
                 progress_bar.progress(0.8)
                 status_text.text("📊 Generating insights...")
@@ -537,10 +536,7 @@ class YouTubeAnalyticsApp:
                 status_text.text(f"🔍 Analyzing {len(channels)} channels...")
                 progress_bar.progress(0.1)
 
-                results = asyncio.run(self.analyzer.analyze_multiple_channels(
-                    channels,
-                    max_workers=2  # Reduced for stability
-                ))
+                results = self._run_multi_analysis(channels)
 
                 progress_bar.progress(0.8)
                 status_text.text("📊 Generating comparative analysis...")
@@ -571,6 +567,51 @@ class YouTubeAnalyticsApp:
         except Exception as e:
             st.error(f"❌ **Unexpected Error**: {str(e)}")
             st.info("💡 **Solutions**: Try refreshing the page or using fewer channels")
+            if st.checkbox("Show Technical Details"):
+                st.code(traceback.format_exc())
+
+    def _run_single_analysis(self, channel: str) -> Dict[str, Any]:
+        """Run single channel analysis synchronously"""
+        try:
+            # Create new event loop for this thread
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+            try:
+                result = loop.run_until_complete(
+                    self.analyzer.analyze_channel(
+                        channel,
+                        max_videos=self.settings.youtube.max_videos_per_channel,
+                        include_predictions=True
+                    )
+                )
+                return result
+            finally:
+                loop.close()
+        except Exception as e:
+            st.error(f"Error analyzing channel {channel}: {str(e)}")
+            return None
+
+    def _run_multi_analysis(self, channels: List[str]) -> Dict[str, Any]:
+        """Run multi-channel analysis synchronously"""
+        try:
+            # Create new event loop for this thread
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+            try:
+                results = loop.run_until_complete(
+                    self.analyzer.analyze_multiple_channels(
+                        channels,
+                        max_workers=2
+                    )
+                )
+                return results
+            finally:
+                loop.close()
+        except Exception as e:
+            st.error(f"Error in multi-channel analysis: {str(e)}")
+            return None
 
     def _generate_auto_exports(self, results: Any):
         """Automatically generate some export files"""
@@ -616,87 +657,95 @@ class YouTubeAnalyticsApp:
 
     def _show_analysis_summary(self):
         """Show analysis summary at the top"""
-        if st.session_state.current_analysis == 'single':
-            results = st.session_state.analysis_results
-            data = results.get('data', pd.DataFrame())
-            channel_name = results.get('channel_name', 'Unknown')
+        try:
+            if st.session_state.current_analysis == 'single':
+                results = st.session_state.analysis_results
+                data = results.get('data', pd.DataFrame())
+                channel_name = results.get('channel_name', 'Unknown')
 
-            st.markdown(f"### 📺 Analysis for **{channel_name}**")
+                st.markdown(f"### 📺 Analysis for **{channel_name}**")
 
-            # Key metrics in columns
-            col1, col2, col3, col4, col5 = st.columns(5)
+                # Key metrics in columns
+                col1, col2, col3, col4, col5 = st.columns(5)
 
-            with col1:
-                st.markdown("""
-                <div class="metric-card">
-                    <h3>📹</h3>
-                    <h2>{:,}</h2>
-                    <p>Videos</p>
-                </div>
-                """.format(len(data)), unsafe_allow_html=True)
+                with col1:
+                    st.markdown("""
+                    <div class="metric-card">
+                        <h3>📹</h3>
+                        <h2>{:,}</h2>
+                        <p>Videos</p>
+                    </div>
+                    """.format(len(data)), unsafe_allow_html=True)
 
-            with col2:
-                avg_views = data['views'].mean() if 'views' in data.columns else 0
-                st.markdown("""
-                <div class="metric-card">
-                    <h3>👀</h3>
-                    <h2>{:,.0f}</h2>
-                    <p>Avg Views</p>
-                </div>
-                """.format(avg_views), unsafe_allow_html=True)
+                with col2:
+                    avg_views = data['views'].mean() if 'views' in data.columns and not data.empty else 0
+                    st.markdown("""
+                    <div class="metric-card">
+                        <h3>👀</h3>
+                        <h2>{:,.0f}</h2>
+                        <p>Avg Views</p>
+                    </div>
+                    """.format(avg_views), unsafe_allow_html=True)
 
-            with col3:
-                total_views = data['views'].sum() if 'views' in data.columns else 0
-                st.markdown("""
-                <div class="metric-card">
-                    <h3>🔥</h3>
-                    <h2>{:,.0f}</h2>
-                    <p>Total Views</p>
-                </div>
-                """.format(total_views), unsafe_allow_html=True)
+                with col3:
+                    total_views = data['views'].sum() if 'views' in data.columns and not data.empty else 0
+                    st.markdown("""
+                    <div class="metric-card">
+                        <h3>🔥</h3>
+                        <h2>{:,.0f}</h2>
+                        <p>Total Views</p>
+                    </div>
+                    """.format(total_views), unsafe_allow_html=True)
 
-            with col4:
-                feature_count = len(data.columns) if not data.empty else 0
-                st.markdown("""
-                <div class="metric-card">
-                    <h3>🎯</h3>
-                    <h2>{}</h2>
-                    <p>Features</p>
-                </div>
-                """.format(feature_count), unsafe_allow_html=True)
+                with col4:
+                    feature_count = len(data.columns) if not data.empty else 0
+                    st.markdown("""
+                    <div class="metric-card">
+                        <h3>🎯</h3>
+                        <h2>{}</h2>
+                        <p>Features</p>
+                    </div>
+                    """.format(feature_count), unsafe_allow_html=True)
 
-            with col5:
-                model_score = results.get('model_results', {}).get('r2_score', 0)
-                st.markdown("""
-                <div class="metric-card">
-                    <h3>🤖</h3>
-                    <h2>{:.1%}</h2>
-                    <p>AI Accuracy</p>
-                </div>
-                """.format(model_score), unsafe_allow_html=True)
+                with col5:
+                    model_score = results.get('model_results', {}).get('r2_score', 0) if results.get(
+                        'model_results') else 0
+                    st.markdown("""
+                    <div class="metric-card">
+                        <h3>🤖</h3>
+                        <h2>{:.1%}</h2>
+                        <p>AI Accuracy</p>
+                    </div>
+                    """.format(model_score), unsafe_allow_html=True)
 
-        else:
-            # Multi-channel summary
-            results = st.session_state.analysis_results
-            individual_results = results.get('individual_results', {})
+            else:
+                # Multi-channel summary
+                results = st.session_state.analysis_results
+                individual_results = results.get('individual_results', {})
 
-            st.markdown(f"### 🏆 Multi-Channel Analysis ({len(individual_results)} channels)")
+                st.markdown(f"### 🏆 Multi-Channel Analysis ({len(individual_results)} channels)")
 
-            col1, col2, col3 = st.columns(3)
+                col1, col2, col3 = st.columns(3)
 
-            with col1:
-                total_videos = sum(len(r.get('data', pd.DataFrame())) for r in individual_results.values())
-                st.metric("Total Videos", f"{total_videos:,}")
+                with col1:
+                    total_videos = sum(len(r.get('data', pd.DataFrame())) for r in individual_results.values())
+                    st.metric("Total Videos", f"{total_videos:,}")
 
-            with col2:
-                successful = len(individual_results)
-                failed = len(results.get('failed_channels', []))
-                st.metric("Success Rate", f"{successful}/{successful + failed}")
+                with col2:
+                    successful = len(individual_results)
+                    failed = len(results.get('failed_channels', []))
+                    st.metric("Success Rate", f"{successful}/{successful + failed}")
 
-            with col3:
-                avg_accuracy = np.mean(
-                    [r.get('model_results', {}).get('r2_score', 0) for r in individual_results.values()])
-                st.metric("Avg AI Accuracy", f"{avg_accuracy:.1%}")
+                with col3:
+                    model_results = [r.get('model_results', {}) for r in individual_results.values() if
+                                     r.get('model_results')]
+                    if model_results:
+                        avg_accuracy = np.mean([mr.get('r2_score', 0) for mr in model_results])
+                        st.metric("Avg AI Accuracy", f"{avg_accuracy:.1%}")
+                    else:
+                        st.metric("Avg AI Accuracy", "N/A")
+        except Exception as e:
+            st.error(f"Error displaying summary: {str(e)}")
 
     def _render_single_channel_results(self):
         """Render results for single channel analysis"""
@@ -799,15 +848,39 @@ class YouTubeAnalyticsApp:
         if st.session_state.export_options.get('charts', True):
             st.markdown("## 📈 Performance Charts")
 
-            # Views distribution
-            chart_html = self.chart_generator._create_views_distribution(data)
-            if chart_html:
-                st.components.v1.html(chart_html, height=600)
+            try:
+                # Views distribution
+                if 'views' in data.columns:
+                    import plotly.express as px
+                    fig = px.histogram(
+                        data,
+                        x='views',
+                        nbins=30,
+                        title='Views Distribution',
+                        labels={'views': 'Views', 'count': 'Number of Videos'}
+                    )
+                    fig.update_layout(template='plotly_white', height=400)
+                    st.plotly_chart(fig, use_container_width=True)
 
-            # Performance timeline
-            chart_html = self.chart_generator._create_performance_timeline(data)
-            if chart_html:
-                st.components.v1.html(chart_html, height=600)
+                # Performance timeline
+                if 'published_at' in data.columns and 'views' in data.columns:
+                    data_plot = data.copy()
+                    data_plot['published_at'] = pd.to_datetime(data_plot['published_at'], errors='coerce')
+                    data_plot = data_plot.dropna(subset=['published_at']).sort_values('published_at')
+
+                    if not data_plot.empty:
+                        fig = px.scatter(
+                            data_plot,
+                            x='published_at',
+                            y='views',
+                            title='Performance Timeline',
+                            labels={'published_at': 'Upload Date', 'views': 'Views'}
+                        )
+                        fig.update_layout(template='plotly_white', height=400)
+                        st.plotly_chart(fig, use_container_width=True)
+
+            except Exception as e:
+                st.warning(f"Could not generate charts: {e}")
 
     def _render_top_content(self, results: Dict[str, Any]):
         """Render top content tab"""
@@ -824,7 +897,7 @@ class YouTubeAnalyticsApp:
 
         for idx, (_, video) in enumerate(top_videos.iterrows(), 1):
             with st.expander(
-                    f"#{idx} - {video.get('title', 'Unknown Title')[:80]}{'...' if len(str(video.get('title', ''))) > 80 else ''}"):
+                    f"#{idx} - {str(video.get('title', 'Unknown Title'))[:80]}{'...' if len(str(video.get('title', ''))) > 80 else ''}"):
                 col1, col2, col3 = st.columns([2, 1, 1])
 
                 with col1:
@@ -844,10 +917,33 @@ class YouTubeAnalyticsApp:
                     st.metric("📊 Engagement", f"{eng_score:.3f}")
 
         # Performance chart
-        if st.session_state.export_options.get('charts', True):
-            chart_html = self.chart_generator._create_top_videos_chart(data, 10)
-            if chart_html:
-                st.components.v1.html(chart_html, height=600)
+        try:
+            if 'views' in top_videos.columns:
+                import plotly.express as px
+
+                # Create titles for chart
+                chart_data = top_videos.copy()
+                if 'title' in chart_data.columns:
+                    chart_data['title_short'] = chart_data['title'].astype(str).str[:40] + '...'
+                else:
+                    chart_data['title_short'] = [f'Video {i + 1}' for i in range(len(chart_data))]
+
+                fig = px.bar(
+                    chart_data,
+                    y='title_short',
+                    x='views',
+                    orientation='h',
+                    title=f'Top {len(chart_data)} Performing Videos',
+                    labels={'views': 'Views', 'title_short': 'Video Title'}
+                )
+                fig.update_layout(
+                    template='plotly_white',
+                    height=max(400, len(chart_data) * 30),
+                    yaxis={'categoryorder': 'total ascending'}
+                )
+                st.plotly_chart(fig, use_container_width=True)
+        except Exception as e:
+            st.warning(f"Could not generate top videos chart: {e}")
 
     def _render_ai_insights(self, results: Dict[str, Any]):
         """Render AI insights tab"""
@@ -880,33 +976,39 @@ class YouTubeAnalyticsApp:
 
             feature_importance = model_results.get('feature_importance', [])
             if feature_importance:
-                # Create importance chart
-                importance_df = pd.DataFrame(feature_importance[:15])
-                importance_df['feature_clean'] = importance_df['feature'].str.replace('_', ' ').str.title()
+                try:
+                    # Create importance chart
+                    importance_df = pd.DataFrame(feature_importance[:15])
+                    importance_df['feature_clean'] = importance_df['feature'].str.replace('_', ' ').str.title()
 
-                col1, col2 = st.columns([2, 1])
+                    col1, col2 = st.columns([2, 1])
 
-                with col1:
-                    # Bar chart
-                    import plotly.express as px
-                    fig = px.bar(
-                        importance_df,
-                        x='importance',
-                        y='feature_clean',
-                        orientation='h',
-                        title="Feature Importance",
-                        labels={'importance': 'Importance Score', 'feature_clean': 'Feature'}
-                    )
-                    fig.update_layout(height=600, template='plotly_white')
-                    st.plotly_chart(fig, use_container_width=True)
+                    with col1:
+                        # Bar chart
+                        import plotly.express as px
+                        fig = px.bar(
+                            importance_df,
+                            x='importance',
+                            y='feature_clean',
+                            orientation='h',
+                            title="Feature Importance",
+                            labels={'importance': 'Importance Score', 'feature_clean': 'Feature'}
+                        )
+                        fig.update_layout(height=600, template='plotly_white')
+                        st.plotly_chart(fig, use_container_width=True)
 
-                with col2:
-                    # Top features list
-                    st.markdown("**🏆 Most Important:**")
-                    for i, feat in enumerate(feature_importance[:8], 1):
-                        impact = "🔥" if feat['importance'] > 0.1 else "📈" if feat['importance'] > 0.05 else "📊"
-                        clean_name = feat['feature'].replace('_', ' ').title()
-                        st.markdown(f"{impact} **{i}.** {clean_name}")
+                    with col2:
+                        # Top features list
+                        st.markdown("**🏆 Most Important:**")
+                        for i, feat in enumerate(feature_importance[:8], 1):
+                            impact = "🔥" if feat['importance'] > 0.1 else "📈" if feat['importance'] > 0.05 else "📊"
+                            clean_name = feat['feature'].replace('_', ' ').title()
+                            st.markdown(f"{impact} **{i}.** {clean_name}")
+                except Exception as e:
+                    st.warning(f"Could not generate feature importance chart: {e}")
+
+                    # Fallback: show as table
+                    st.dataframe(pd.DataFrame(feature_importance[:10]), use_container_width=True)
 
         # SHAP Analysis
         if shap_results and st.session_state.settings.ml.enable_shap:
@@ -916,11 +1018,14 @@ class YouTubeAnalyticsApp:
                 st.markdown("### 📊 SHAP Summary Plot")
                 st.markdown("*Shows how each feature impacts video performance predictions*")
 
-                # Display SHAP plot
-                import base64
-                plot_data = shap_results['summary_plot']
-                image_data = base64.b64decode(plot_data)
-                st.image(image_data, caption="SHAP Feature Impact Analysis")
+                try:
+                    # Display SHAP plot
+                    import base64
+                    plot_data = shap_results['summary_plot']
+                    image_data = base64.b64decode(plot_data)
+                    st.image(image_data, caption="SHAP Feature Impact Analysis")
+                except Exception as e:
+                    st.warning(f"Could not display SHAP plot: {e}")
 
             if 'explanations' in shap_results:
                 explanations = shap_results['explanations']
@@ -954,11 +1059,11 @@ class YouTubeAnalyticsApp:
         if recommendations:
             for i, rec in enumerate(recommendations, 1):
                 st.markdown(f"""
-                        <div class="recommendation-card">
-                            <h4>#{i} Recommendation</h4>
-                            <p>{rec}</p>
-                        </div>
-                        """, unsafe_allow_html=True)
+                <div class="recommendation-card">
+                    <h4>#{i} Recommendation</h4>
+                    <p>{rec}</p>
+                </div>
+                """, unsafe_allow_html=True)
         else:
             st.info("No specific recommendations available. Try analyzing more videos for better insights.")
 
@@ -1022,7 +1127,8 @@ class YouTubeAnalyticsApp:
             with col2:
                 st.metric("🔢 Numeric Features", feature_summary.get('numeric_features', 0))
             with col3:
-                missing_pct = sum(feature_summary.get('missing_data', {}).values()) / max(len(data), 1) * 100
+                missing_data = feature_summary.get('missing_data', {})
+                missing_pct = sum(missing_data.values()) / max(len(data), 1) * 100 if missing_data else 0
                 st.metric("❓ Missing Data", f"{missing_pct:.1f}%")
             with col4:
                 st.metric("📹 Total Videos", len(data))
@@ -1036,38 +1142,89 @@ class YouTubeAnalyticsApp:
             filtered_correlations = {k: v for k, v in top_correlations.items() if k != 'views'}
 
             if filtered_correlations:
-                corr_df = pd.DataFrame([
-                    {
-                        'Feature': k.replace('_', ' ').title(),
-                        'Correlation': v,
-                        'Strength': 'Strong' if abs(v) > 0.5 else 'Moderate' if abs(v) > 0.3 else 'Weak'
-                    }
-                    for k, v in list(filtered_correlations.items())[:10]
-                ])
+                try:
+                    corr_df = pd.DataFrame([
+                        {
+                            'Feature': k.replace('_', ' ').title(),
+                            'Correlation': v,
+                            'Strength': 'Strong' if abs(v) > 0.5 else 'Moderate' if abs(v) > 0.3 else 'Weak'
+                        }
+                        for k, v in list(filtered_correlations.items())[:10]
+                    ])
 
-                # Create correlation chart
-                import plotly.express as px
-                fig = px.bar(
-                    corr_df,
-                    x='Correlation',
-                    y='Feature',
-                    color='Strength',
-                    orientation='h',
-                    title="Feature Correlation with Views",
-                    color_discrete_map={'Strong': '#ff4444', 'Moderate': '#ffaa44', 'Weak': '#44aaff'}
-                )
-                fig.update_layout(height=400, template='plotly_white')
-                st.plotly_chart(fig, use_container_width=True)
+                    # Create correlation chart
+                    import plotly.express as px
+                    fig = px.bar(
+                        corr_df,
+                        x='Correlation',
+                        y='Feature',
+                        color='Strength',
+                        orientation='h',
+                        title="Feature Correlation with Views",
+                        color_discrete_map={'Strong': '#ff4444', 'Moderate': '#ffaa44', 'Weak': '#44aaff'}
+                    )
+                    fig.update_layout(height=400, template='plotly_white')
+                    st.plotly_chart(fig, use_container_width=True)
 
-                # Data table
-                st.dataframe(corr_df, use_container_width=True)
+                    # Data table
+                    st.dataframe(corr_df, use_container_width=True)
+                except Exception as e:
+                    st.warning(f"Could not generate correlation chart: {e}")
+                    st.dataframe(pd.DataFrame(list(filtered_correlations.items())[:10],
+                                              columns=['Feature', 'Correlation']), use_container_width=True)
 
         # Feature distributions
         if st.session_state.export_options.get('charts', True):
             st.markdown("### 📈 Feature Distributions")
-            chart_html = self.chart_generator._create_feature_distributions(data)
-            if chart_html:
-                st.components.v1.html(chart_html, height=800)
+
+            try:
+                # Select interesting numeric features
+                numeric_cols = data.select_dtypes(include=[np.number]).columns
+                interesting_features = [
+                    'title_length', 'duration_seconds', 'publish_hour',
+                    'thumbnail_brightness', 'clickbait_score', 'engagement_score'
+                ]
+
+                # Filter to available features
+                available_features = [f for f in interesting_features if f in numeric_cols]
+
+                if not available_features:
+                    # Fallback to any numeric columns
+                    available_features = list(numeric_cols[:6])
+
+                if available_features:
+                    import plotly.graph_objects as go
+                    from plotly.subplots import make_subplots
+
+                    n_features = min(len(available_features), 6)  # Limit to 6 for performance
+                    cols = 3
+                    rows = (n_features + cols - 1) // cols
+
+                    fig = make_subplots(
+                        rows=rows,
+                        cols=cols,
+                        subplot_titles=[f.replace('_', ' ').title() for f in available_features[:n_features]],
+                        vertical_spacing=0.1
+                    )
+
+                    for i, feature in enumerate(available_features[:n_features]):
+                        row = i // cols + 1
+                        col = i % cols + 1
+
+                        fig.add_trace(
+                            go.Histogram(x=data[feature], name=feature, showlegend=False),
+                            row=row, col=col
+                        )
+
+                    fig.update_layout(
+                        title='Feature Distributions',
+                        template='plotly_white',
+                        height=300 * rows
+                    )
+
+                    st.plotly_chart(fig, use_container_width=True)
+            except Exception as e:
+                st.warning(f"Could not generate feature distributions: {e}")
 
     def _render_export_section(self, results: Dict[str, Any]):
         """Render export section for single channel"""
@@ -1200,12 +1357,12 @@ class YouTubeAnalyticsApp:
                     medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"#{i}"
 
                     st.markdown(f"""
-                            <div class="metric-container">
-                                <h4>{medal} {channel_data['channel']}</h4>
-                                <p><strong>Average Views:</strong> {channel_data['avg_views']:,.0f}</p>
-                                <p><strong>Total Videos:</strong> {channel_data['total_videos']}</p>
-                            </div>
-                            """, unsafe_allow_html=True)
+                    <div class="metric-container">
+                        <h4>{medal} {channel_data['channel']}</h4>
+                        <p><strong>Average Views:</strong> {channel_data['avg_views']:,.0f}</p>
+                        <p><strong>Total Videos:</strong> {channel_data['total_videos']}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
 
         with rank_tab2:
             if 'by_engagement' in rankings:
@@ -1216,12 +1373,12 @@ class YouTubeAnalyticsApp:
                     medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"#{i}"
 
                     st.markdown(f"""
-                            <div class="metric-container">
-                                <h4>{medal} {channel_data['channel']}</h4>
-                                <p><strong>Engagement Rate:</strong> {channel_data['avg_engagement']:.3f}</p>
-                                <p><strong>Total Videos:</strong> {channel_data['total_videos']}</p>
-                            </div>
-                            """, unsafe_allow_html=True)
+                    <div class="metric-container">
+                        <h4>{medal} {channel_data['channel']}</h4>
+                        <p><strong>Engagement Rate:</strong> {channel_data['avg_engagement']:.3f}</p>
+                        <p><strong>Total Videos:</strong> {channel_data['total_videos']}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
 
         with rank_tab3:
             if 'by_predictability' in rankings:
@@ -1232,12 +1389,12 @@ class YouTubeAnalyticsApp:
                     medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"#{i}"
 
                     st.markdown(f"""
-                            <div class="metric-container">
-                                <h4>{medal} {channel_data['channel']}</h4>
-                                <p><strong>Model Accuracy:</strong> {channel_data['model_score']:.1%}</p>
-                                <p><strong>Total Videos:</strong> {channel_data['total_videos']}</p>
-                            </div>
-                            """, unsafe_allow_html=True)
+                    <div class="metric-container">
+                        <h4>{medal} {channel_data['channel']}</h4>
+                        <p><strong>Model Accuracy:</strong> {channel_data['model_score']:.1%}</p>
+                        <p><strong>Total Videos:</strong> {channel_data['total_videos']}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
 
     def _render_comparative_analysis(self, results: Dict[str, Any]):
         """Render comparative analysis"""
@@ -1248,15 +1405,59 @@ class YouTubeAnalyticsApp:
             individual_results = results.get('individual_results', {})
 
             if len(individual_results) > 1:
-                # Performance comparison
-                chart_html = self.chart_generator._create_channel_comparison(individual_results)
-                if chart_html:
-                    st.components.v1.html(chart_html, height=600)
+                try:
+                    # Performance comparison
+                    comparison_data = []
 
-                # Distribution comparison
-                chart_html = self.chart_generator._create_performance_comparison(individual_results)
-                if chart_html:
-                    st.components.v1.html(chart_html, height=600)
+                    for channel_name, result in individual_results.items():
+                        df = result.get('data', pd.DataFrame())
+                        if not df.empty and 'views' in df.columns:
+                            channel_stats = {
+                                'Channel': channel_name,
+                                'Avg Views': df['views'].mean(),
+                                'Total Videos': len(df),
+                                'Max Views': df['views'].max()
+                            }
+                            comparison_data.append(channel_stats)
+
+                    if comparison_data:
+                        comparison_df = pd.DataFrame(comparison_data)
+
+                        # Create grouped bar chart
+                        import plotly.express as px
+                        fig = px.bar(
+                            comparison_df,
+                            x='Channel',
+                            y=['Avg Views', 'Max Views'],
+                            title='Channel Performance Comparison',
+                            barmode='group'
+                        )
+                        fig.update_layout(template='plotly_white', height=500)
+                        st.plotly_chart(fig, use_container_width=True)
+
+                        # Distribution comparison
+                        import plotly.graph_objects as go
+                        fig = go.Figure()
+
+                        for channel_name, result in individual_results.items():
+                            df = result.get('data', pd.DataFrame())
+                            if not df.empty and 'views' in df.columns:
+                                fig.add_trace(go.Box(
+                                    y=df['views'],
+                                    name=channel_name,
+                                    boxpoints='outliers'
+                                ))
+
+                        fig.update_layout(
+                            title='Views Distribution Comparison',
+                            yaxis_title='Views',
+                            template='plotly_white',
+                            height=500
+                        )
+                        st.plotly_chart(fig, use_container_width=True)
+
+                except Exception as e:
+                    st.warning(f"Could not generate comparison charts: {e}")
 
         # Cross-channel patterns
         comparative_analysis = results.get('comparative_analysis', {})
@@ -1293,10 +1494,10 @@ class YouTubeAnalyticsApp:
 
             for practice in best_practices:
                 st.markdown(f"""
-                        <div class="recommendation-card">
-                            <p>✅ {practice}</p>
-                        </div>
-                        """, unsafe_allow_html=True)
+                <div class="recommendation-card">
+                    <p>✅ {practice}</p>
+                </div>
+                """, unsafe_allow_html=True)
 
         # Competitive insights
         competitive_insights = comparative_analysis.get('competitive_insights', {})
@@ -1409,10 +1610,16 @@ class YouTubeAnalyticsApp:
 
 
 def main():
-        """Main application entry point"""
+    """Main application entry point"""
+    try:
         app = YouTubeAnalyticsApp()
         app.run()
+    except Exception as e:
+        st.error(f"Critical Application Error: {str(e)}")
+        st.error("Please refresh the page to restart the application.")
+        if st.checkbox("Show Technical Details"):
+            st.code(traceback.format_exc())
+
 
 if __name__ == "__main__":
     main()
-
