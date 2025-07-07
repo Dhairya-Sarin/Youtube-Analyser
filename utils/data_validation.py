@@ -124,3 +124,37 @@ class DataValidator:
 
         # Validate feature ranges
         df = self._validate_feature_
+
+    def _validate_feature_ranges(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Validate that features are within expected ranges"""
+
+        # Ratio features should be between 0 and 1
+        ratio_features = [col for col in df.columns if 'ratio' in col.lower()]
+        for feature in ratio_features:
+            if feature in df.columns:
+                df[feature] = df[feature].clip(0, 1)
+
+        # Percentage features should be between 0 and 1
+        percentage_features = [col for col in df.columns if 'percentage' in col.lower() or col.endswith('_pct')]
+        for feature in percentage_features:
+            if feature in df.columns:
+                df[feature] = df[feature].clip(0, 1)
+
+        # Count features should be non-negative
+        count_features = [col for col in df.columns if 'count' in col.lower()]
+        for feature in count_features:
+            if feature in df.columns:
+                df[feature] = df[feature].clip(0, None)
+
+        # Score features should typically be between 0 and 1 or 0 and 10
+        score_features = [col for col in df.columns if 'score' in col.lower()]
+        for feature in score_features:
+            if feature in df.columns:
+                # Determine if it's a 0-1 or 0-10 scale based on max value
+                max_val = df[feature].max()
+                if max_val > 5:
+                    df[feature] = df[feature].clip(0, 10)
+                else:
+                    df[feature] = df[feature].clip(0, 1)
+
+        return df
