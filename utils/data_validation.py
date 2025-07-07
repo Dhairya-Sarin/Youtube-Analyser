@@ -123,7 +123,9 @@ class DataValidator:
         df.replace([np.inf, -np.inf], 0, inplace=True)
 
         # Validate feature ranges
-        df = self._validate_feature_
+        df = self._validate_feature_ranges(df)
+
+        return df
 
     def _validate_feature_ranges(self, df: pd.DataFrame) -> pd.DataFrame:
         """Validate that features are within expected ranges"""
